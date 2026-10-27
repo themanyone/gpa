@@ -1,0 +1,23 @@
+/* GPA — Group Planning Assistant (GPL-2.0-only). See LICENSE. */
+/* theme.css: foreground/background follow the browser Dark Mode preference. */
+
+:root {
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121417;
+    --bg-raised: #1b1f24;
+    --bg-sunken: #242a31;
+    --fg: #e8eaed;
+    --muted: #9aa3af;
+    --border: #333b44;
+    --accent: #7aa2ff;
+    --accent-fg: #0b1226;
+    --bubble: #232a32;
+    --bubble-own: #26355c;
+    --bubble-ai: #1c3a2a;
+    --danger: #ff8a80;
+  }
+}

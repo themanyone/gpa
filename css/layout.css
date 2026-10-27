@@ -1,0 +1,88 @@
+/* GPA — Group Planning Assistant (GPL-2.0-only). See LICENSE. */
+/* layout.css: top bar + responsive placement of the info bar. */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.6rem 1rem;
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--border);
+}
+
+.brand { display: flex; align-items: center; gap: 0.6rem; }
+.brand-mark {
+  font-size: 1.6rem;
+  color: var(--accent);
+  line-height: 1;
+}
+.brand h1 { font-size: 1.25rem; letter-spacing: 0.04em; }
+.tagline { font-size: 0.75rem; color: var(--muted); }
+
+.group-switch {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  flex: 1 1 auto;
+}
+
+.auth {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.layout {
+  flex: 1 1 auto;
+  display: flex;
+  min-height: 0;
+}
+
+.chat {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Landscape: info bar docks on the left. */
+@media (orientation: landscape) {
+  .layout { flex-direction: row; }
+  .infobar {
+    flex: 0 0 17rem;
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+  }
+}
+
+/* Portrait: info bar moves to the bottom, lists scroll horizontally. */
+@media (orientation: portrait) {
+  .layout { flex-direction: column; }
+  .chat { flex: 1 1 62%; order: 1; min-height: 0; }
+  .infobar {
+    flex: 0 1 auto;
+    order: 2;
+    min-height: 0;
+    max-height: 38%;
+    border-top: 1px solid var(--border);
+    overflow-y: auto;
+  }
+  .infobar .roster {
+    display: flex;
+    flex-direction: row;
+    gap: 0.5rem;
+    overflow-x: auto;
+    padding-bottom: 0.25rem;
+  }
+  .infobar .roster > li { flex: 0 0 auto; width: 14rem; }
+}
+
+/* Narrow screens: compact top bar. */
+@media (max-width: 40rem) {
+  .tagline { display: none; }
+  .topbar { gap: 0.5rem; }
+}

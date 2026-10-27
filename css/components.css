@@ -1,0 +1,106 @@
+/* GPA — Group Planning Assistant (GPL-2.0-only). See LICENSE. */
+/* components.css: buttons, inputs, dialogs, avatars. */
+
+.btn {
+  font: inherit;
+  font-size: 0.88rem;
+  padding: 0.45rem 0.8rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn:hover:not(:disabled) { border-color: var(--accent); }
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+  font-weight: 600;
+}
+
+.btn-ghost { background: transparent; }
+
+input[type="text"], select {
+  font: inherit;
+  font-size: 0.9rem;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.45rem 0.6rem;
+}
+
+input[type="text"]:focus-visible, select:focus-visible, .btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.avatar {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  object-fit: cover;
+  flex: none;
+  background: var(--bg-sunken);
+}
+
+.avatar.lg { width: 4rem; height: 4rem; }
+
+dialog {
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) * 1.5);
+  background: var(--bg);
+  color: var(--fg);
+  padding: 1.25rem;
+  max-width: min(26rem, calc(100vw - 2rem));
+  width: 26rem;
+}
+
+dialog::backdrop { background: rgb(0 0 0 / 0.45); }
+
+dialog h2 { font-size: 1.1rem; margin-bottom: 0.25rem; }
+
+.dialog-sub {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-bottom: 0.9rem;
+}
+
+dialog label { display: block; font-size: 0.88rem; margin-bottom: 0.8rem; }
+dialog label input { display: block; width: 100%; margin-top: 0.3rem; }
+.optional { color: var(--muted); font-weight: normal; }
+
+.dialog-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 1rem;
+}
+.dialog-actions .spacer { flex: 1 1 auto; }
+
+.avatar-preview {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 0.9rem;
+}
+.avatar-preview img {
+  width: 5rem;
+  height: 5rem;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+}
+
+.user-chip { display: flex; align-items: center; gap: 0.5rem; }
+.user-chip .name { font-weight: 600; font-size: 0.9rem; max-width: 10rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.user-chip .kind { font-size: 0.72rem; color: var(--muted); }

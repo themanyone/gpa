@@ -1,0 +1,62 @@
+/* GPA — Group Planning Assistant (GPL-2.0-only). See LICENSE. */
+/* base.css: reset, design tokens, typography. */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+:root {
+  --bg: #ffffff;
+  --bg-raised: #f4f5f7;
+  --bg-sunken: #eceef2;
+  --fg: #1a1d21;
+  --muted: #5b6470;
+  --border: #d9dee5;
+  --accent: #2456e0;
+  --accent-fg: #ffffff;
+  --bubble: #eef1f6;
+  --bubble-own: #dbe6ff;
+  --bubble-ai: #e3f5e9;
+  --danger: #b3261e;
+  --radius: 10px;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--fg);
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+}
+
+h1, h2, h3, p { margin: 0; }
+
+ul { margin: 0; padding: 0; list-style: none; }
+
+img { max-width: 100%; display: block; }
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+  background: var(--bg-sunken);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+}
+
+.visually-hidden {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0; border: 0;
+  clip: rect(0 0 0 0);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.noscript {
+  padding: 1rem;
+  text-align: center;
+  background: var(--bg-raised);
+}

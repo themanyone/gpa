@@ -1,16 +1,17 @@
 // GPA — Group Planning Assistant (GPL-2.0-only). See LICENSE.
 // app.js: entry point — wires dialogs, info bar, chat, and access control.
 
+import { isBackendAvailable, joinRemote } from './api.js';
 import {
   canChangeAvatar, canCreateGroups, currentUser, identityFor,
   login, logout, setGuestHandle, setUserAvatar,
 } from './auth.js';
 import { avatarFor, genericAvatar } from './avatar.js';
-import { renderMessages, sendMessage } from './chat.js';
-import { createGroup, groupIdFromUrl, inviteLink, resolveActiveGroup, setUrlGroup } from './groups.js';
+import { renderMessages, sendMessage, unwatchGroup, watchGroup } from './chat.js';
+import { createGroup, groupIdFromUrl, inviteLink, resolveActiveGroup, setUrlGroup, syncGroupFromServer } from './groups.js';
 import { AI_MODELS } from './models.js';
 import { renderParticipants } from './participants.js';
-import { getGroup, listGroups, seedIfEmpty } from './store.js';
+import { getGroup, listGroups, saveGroup, seedIfEmpty } from './store.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -49,13 +50,17 @@ const els = {
 
 let activeGroup = null;
 let pendingAvatar = null; // data URL staged in the avatar dialog
+let remoteMode = false;
 
 init();
 
-function init() {
-  seedIfEmpty();
-  activeGroup = resolveActiveGroup();
+async function init() {
+  remoteMode = await isBackendAvailable();
+  if (!remoteMode) seedIfEmpty();
+  activeGroup = await resolveActiveGroup();
   wireStatic();
+  renderAll();
+  await ensureRemoteMembership();
   renderAll();
   // Invite flow: guest with a link but no identity picks a handle to join.
   if (activeGroup && !identityFor(activeGroup.id)) {
@@ -64,10 +69,40 @@ function init() {
   }
 }
 
+/** Register the current identity's membership on the server (remote only). */
+async function ensureRemoteMembership() {
+  if (!remoteMode || !activeGroup) return;
+  const me = identityFor(activeGroup.id);
+  if (!me) return;
+  try {
+    const { members } = await joinRemote(activeGroup.id, {
+      name: me.name,
+      kind: me.kind,
+      avatar: me.avatar || null,
+    });
+    activeGroup.members = members.map((m) => ({ name: m.name, kind: m.kind, avatar: m.avatar || null }));
+    saveGroup(activeGroup);
+  } catch {
+    // Server unreachable mid-session: local state stands.
+  }
+}
+
 function wireStatic() {
-  els.groupSelect.addEventListener('change', () => {
+  els.groupSelect.addEventListener('change', async () => {
     activeGroup = getGroup(els.groupSelect.value);
-    if (activeGroup) setUrlGroup(activeGroup.id);
+    if (activeGroup) {
+      setUrlGroup(activeGroup.id);
+      if (remoteMode) {
+        try {
+          await syncGroupFromServer(activeGroup.id);
+        } catch {
+          // Keep local cache on sync failure.
+        }
+        activeGroup = getGroup(activeGroup.id);
+      }
+    }
+    renderAll();
+    await ensureRemoteMembership();
     renderAll();
     if (activeGroup && !identityFor(activeGroup.id)) els.handleDialog.showModal();
   });
@@ -107,34 +142,39 @@ function wireStatic() {
       onUpdate: () => renderChat(),
       showTyping: (t) => { els.typing.textContent = t; els.typing.hidden = false; },
       hideTyping: () => { els.typing.hidden = true; },
+    }).catch((err) => {
+      els.messageInput.value = text;
+      alert(`Could not send message: ${err.message || err}`);
     });
   });
 
-  els.loginForm.addEventListener('submit', (e) => {
+  els.loginForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     login(els.loginName.value);
     els.loginDialog.close();
+    await ensureRemoteMembership();
     renderAll();
   });
 
-  els.handleForm.addEventListener('submit', (e) => {
+  els.handleForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     if (!activeGroup) return;
     const name = els.handleName.value.trim();
     if (!name) return;
     setGuestHandle(activeGroup.id, name.startsWith('@') ? name.slice(1) : name);
     els.handleDialog.close();
+    await ensureRemoteMembership();
     renderAll();
     els.messageInput.focus();
   });
   // Guests may read without joining; only sending requires a handle.
   els.handleDialog.addEventListener('close', () => renderAll());
 
-  els.groupForm.addEventListener('submit', (e) => {
+  els.groupForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     try {
       const user = currentUser();
-      activeGroup = createGroup(els.groupName.value, els.groupTopicInput.value, user.name);
+      activeGroup = await createGroup(els.groupName.value, els.groupTopicInput.value, user.name);
       setUrlGroup(activeGroup.id);
       els.groupDialog.close();
       renderAll();
@@ -155,13 +195,14 @@ function wireStatic() {
     els.avatarPreview.src = genericAvatar(user ? user.name : '?');
     els.avatarFile.value = '';
   });
-  els.avatarForm.addEventListener('submit', (e) => {
+  els.avatarForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     if (!setUserAvatar(pendingAvatar)) {
       alert('Only logged-in users can change their profile picture.');
       return;
     }
     els.avatarDialog.close();
+    await ensureRemoteMembership();
     renderAll();
   });
 
@@ -172,7 +213,8 @@ function wireStatic() {
   const scheme = window.matchMedia('(prefers-color-scheme: dark)');
   const paintScheme = () => {
     els.appearanceNote.textContent =
-      `Appearance: ${scheme.matches ? 'dark' : 'light'} (follows browser Dark Mode)`;
+      `Appearance: ${scheme.matches ? 'dark' : 'light'} (follows browser Dark Mode) · ` +
+      (remoteMode ? 'live sync on' : 'local demo mode');
   };
   scheme.addEventListener('change', paintScheme);
   paintScheme();
@@ -202,9 +244,10 @@ function renderGroupChrome() {
     els.groupTopic.textContent = activeGroup.topic || '';
   } else if (groupIdFromUrl()) {
     els.groupTitle.textContent = 'Group not found';
-    els.groupTopic.textContent =
-      'This invite link matches no group in this browser (demo data is stored locally). ' +
-      'Ask the sender to re-invite you, or create a group.';
+    els.groupTopic.textContent = remoteMode
+      ? 'This invite link matches no group on the server. Ask the sender for a fresh link.'
+      : 'This invite link matches no group in this browser (demo data is stored locally). ' +
+        'Ask the sender to re-invite you, or create a group.';
   } else {
     els.groupTitle.textContent = 'No groups yet';
     els.groupTopic.textContent = 'Log in and create the first group to get started.';
@@ -283,6 +326,7 @@ function renderModels() {
 
 function renderChat() {
   if (!activeGroup) {
+    unwatchGroup();
     els.messages.innerHTML = '';
     els.participantList.innerHTML = '';
     els.participantCount.textContent = '';
@@ -293,6 +337,7 @@ function renderChat() {
   const me = identityFor(activeGroup.id);
   renderMessages(els.messages, activeGroup, me);
   renderParticipants(els.participantList, els.participantCount, activeGroup, me);
+  watchGroup(activeGroup.id, { onUpdate: () => renderChat() });
   if (!me) {
     setComposerEnabled(false, 'Join with a handle to participate — guests get a generic avatar.');
   } else if (me.kind === 'guest') {

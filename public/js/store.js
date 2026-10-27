@@ -52,10 +52,20 @@ export function getMessages(groupId) {
 export function addMessage(groupId, message) {
   const all = loadJSON(KEYS.messages, {});
   const list = all[groupId] || [];
-  list.push(message);
+  // Upsert by id: server echoes of our own posts must not duplicate.
+  const i = list.findIndex((m) => m.id === message.id);
+  if (i >= 0) list[i] = message;
+  else list.push(message);
   all[groupId] = list;
   saveJSON(KEYS.messages, all);
   return message;
+}
+
+/** Replace a group's local messages (used after syncing from the server). */
+export function saveMessages(groupId, messages) {
+  const all = loadJSON(KEYS.messages, {});
+  all[groupId] = messages;
+  saveJSON(KEYS.messages, all);
 }
 
 /** session = {user: {name,avatar} | null, guests: {groupId: handle}} */

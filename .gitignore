@@ -6,6 +6,10 @@ Thumbs.db
 .vscode/
 .idea/
 
-# Dependencies / build output (no build step yet; reserved)
+# Dependencies / build output
 node_modules/
 dist/
+backend/.wrangler/
+backend/worker-configuration.d.ts
+.env
+.dev.vars

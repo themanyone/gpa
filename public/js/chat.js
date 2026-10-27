@@ -1,6 +1,8 @@
 // GPA — Group Planning Assistant (GPL-2.0-only). See LICENSE.
-// chat.js: message rendering and the send flow (including @AI replies).
+// chat.js: message rendering, the send flow (including @AI replies),
+// and the live channel subscription for the active group.
 
+import { connectGroupSocket, isBackendAvailable, postRemote } from './api.js';
 import { avatarFor } from './avatar.js';
 import { askModel, findMentions } from './models.js';
 import { addMessage, getMessages, uid } from './store.js';
@@ -46,41 +48,72 @@ function messageNode(msg, you) {
 
 /**
  * Send a message as `identity`, then answer any @AI mentions in order.
+ * Remote mode posts through the server (which assigns ids and broadcasts
+ * to other clients); local mode appends to localStorage directly.
  * `onUpdate` re-renders after each new message; typing indicator callbacks
  * bracket each AI reply.
  */
 export async function sendMessage(group, identity, text, hooks) {
-  const clean = text.trim();
+  const clean = text.trim().slice(0, 2000);
   if (!clean) return;
   ensureMember(group, identity.name, identity.kind);
-  const mine = addMessage(group.id, {
-    id: uid('m'),
-    author: identity.name,
-    kind: identity.kind,
-    avatar: identity.kind === 'user' ? identity.avatar : null,
-    text: clean.slice(0, 2000),
-    ts: Date.now(),
-  });
-  hooks.onUpdate();
+  const remote = await isBackendAvailable();
+
+  async function publish(author, kind, avatar, msgText) {
+    if (remote) {
+      const { message } = await postRemote(group.id, { author, kind, avatar, text: msgText });
+      addMessage(group.id, message);
+    } else {
+      addMessage(group.id, {
+        id: uid('m'),
+        author,
+        kind,
+        avatar: kind === 'user' ? avatar : null,
+        text: msgText,
+        ts: Date.now(),
+      });
+    }
+    hooks.onUpdate();
+  }
+
+  await publish(identity.name, identity.kind, identity.avatar, clean);
 
   for (const model of findMentions(clean)) {
     hooks.showTyping(`@${model.handle} is thinking…`);
     try {
       const history = getMessages(group.id);
-      const question = clean;
-      const reply = await askModel(model, question, history);
-      addMessage(group.id, {
-        id: uid('m'),
-        author: `@${model.handle}`,
-        kind: 'ai',
-        avatar: null,
-        text: reply,
-        ts: Date.now(),
-      });
-      hooks.onUpdate();
+      const reply = await askModel(model, clean, history);
+      await publish(`@${model.handle}`, 'ai', null, reply);
     } finally {
       hooks.hideTyping();
     }
   }
-  return mine;
+}
+
+// Live channel for the active group. Only one subscription at a time;
+// the token guards against overlapping async connects on fast switching.
+let activeSocket = null;
+let watchToken = 0;
+
+export function watchGroup(groupId, hooks) {
+  unwatchGroup();
+  const token = ++watchToken;
+  isBackendAvailable().then((remote) => {
+    if (!remote || token !== watchToken) return;
+    const close = connectGroupSocket(groupId, {
+      onMessage: (message) => {
+        addMessage(groupId, message);
+        hooks.onUpdate();
+      },
+    });
+    activeSocket = { groupId, close };
+  });
+}
+
+export function unwatchGroup() {
+  watchToken += 1;
+  if (activeSocket) {
+    activeSocket.close();
+    activeSocket = null;
+  }
 }

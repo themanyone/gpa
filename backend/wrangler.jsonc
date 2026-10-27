@@ -1,0 +1,18 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "gpa-backend",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-27",
+  "compatibility_flags": ["nodejs_compat"],
+  // Static frontend (../public) is served directly; /api/* falls through to the Worker.
+  "assets": { "directory": "../public" },
+  "durable_objects": {
+    "bindings": [{ "name": "GROUP_ROOM", "class_name": "GroupRoom" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["GroupRoom"] }],
+  "observability": {
+    "enabled": true,
+    "logs": { "enabled": true, "head_sampling_rate": 1 },
+    "traces": { "enabled": true, "head_sampling_rate": 0.01 }
+  }
+}

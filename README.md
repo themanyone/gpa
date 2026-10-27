@@ -4,7 +4,7 @@ GPA is a group-planning assistant. It starts with a group chat interface:
 create a group, share an invite link, plan together, and `@ask` an AI
 right inside the conversation.
 
-This repository currently contains the **front end only** (no backend yet).
+This repository currently contains the **front end only**, [demo on https://my-ai.us/gpa/](https://my-ai.us/gpa/).
 Chat data is stored in the browser via `localStorage`, and AI replies are
 local demo stubs behind a single module boundary (`js/models.js`) so a real
 backend can replace them later without touching the UI.

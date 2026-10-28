@@ -62,11 +62,12 @@ so the layout, info bar, and `@planner` replies are visible immediately.
 | Send messages, `@ask` an AI         |       yes      |          yes           |
 
 Guests choose a handle when they open an invite link and are assigned a
-generic avatar. Enforcement lives in `public/js/auth.js`
-(`canCreateGroups()`, `canChangeAvatar()`) and is applied both to the UI
-(disabled buttons with explanations) and to the underlying actions.
-Note: the server currently accepts the client-claimed author name; real
-accounts and server-side enforcement are the next slice (see Roadmap).
+generic avatar. Accounts are a display name plus password (8+ characters);
+the server stores a PBKDF2 hash and issues an opaque session token.
+Enforcement lives in `public/js/auth.js` (`canCreateGroups()`,
+`canChangeAvatar()`) for the UI, and on the server for the API: creating
+groups requires a session token, `user` posts must match the token's name,
+and guests can't post under a registered name.
 
 ## Backend
 
@@ -74,8 +75,11 @@ accounts and server-side enforcement are the next slice (see Roadmap).
 
 - One `GroupRoom` Durable Object per group: members and messages in
   co-located SQLite storage, live fan-out over hibernatable WebSockets.
+- One global `AuthStore` Durable Object: account hashes and session tokens.
 - The Worker serves `public/` as static assets and routes `/api/*`:
-  `GET /api/health`, `POST /api/groups`, `GET /api/groups/:id`,
+  `GET /api/health`, `POST /api/auth/register`, `POST /api/auth/login`,
+  `POST /api/auth/logout`, `GET /api/auth/me`, `POST /api/auth/avatar`,
+  `POST /api/groups`, `GET /api/groups/:id`,
   `POST /api/groups/:id/join`, `GET|POST /api/groups/:id/messages`,
   `GET /api/groups/:id/ws` (WebSocket upgrade).
 - The frontend probes same-origin `/api/health` on load; when it answers,
@@ -124,15 +128,16 @@ public/              static frontend (also the Worker's assets directory)
     avatar.js        generic thumbnails, uploaded pictures
   assets/            static images (default avatar)
 backend/             Cloudflare Worker + Durable Objects (TypeScript)
-  wrangler.jsonc     Worker config: assets, DO binding, observability
-  src/index.ts       Worker entry: /api/* routing, CORS, validation
+  wrangler.jsonc     Worker config: assets, DO bindings, observability
+  src/index.ts       Worker entry: /api/* routing, CORS, auth enforcement
   src/group-room.ts  GroupRoom DO: SQLite members/messages, WS fan-out
+  src/auth-store.ts  AuthStore DO: account hashes, session tokens
 ```
 
 ## Roadmap
 
 - ~~Backend: shared groups, guest membership, message sync (WebSocket).~~ Done.
-- Real accounts; server-side enforcement of the access-control matrix.
+- ~~Real accounts; server-side enforcement of the access-control matrix.~~ Done.
 - Real model calls behind `askModel()`; per-group model configuration.
 - Read receipts, polls, shared itinerary/checklist views.
 

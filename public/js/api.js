@@ -5,6 +5,7 @@
 // fully offline against localStorage (see store.js).
 
 const LS_KEY = 'gpa.apiBase';
+const TOKEN_KEY = 'gpa.authToken';
 const PROBE_TIMEOUT_MS = 2500;
 
 export function apiBase() {
@@ -43,10 +44,31 @@ export class ApiError extends Error {
   }
 }
 
+/** Opaque session token from /api/auth/* (remote mode only). */
+export function authToken() {
+  try {
+    return localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setAuthToken(token) {
+  try {
+    if (token) localStorage.setItem(TOKEN_KEY, token);
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    // Storage unavailable — session simply won't persist.
+  }
+}
+
 async function req(path, { method = 'GET', body = null } = {}) {
+  const headers = body ? { 'Content-Type': 'application/json' } : {};
+  const token = authToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
   const res = await fetch(`${apiBase()}${path}`, {
     method,
-    headers: body ? { 'Content-Type': 'application/json' } : {},
+    headers,
     body: body ? JSON.stringify(body) : null,
   });
   let data = {};
@@ -57,6 +79,31 @@ async function req(path, { method = 'GET', body = null } = {}) {
   }
   if (!res.ok) throw new ApiError(res.status, data.error || `Request failed (${res.status}).`);
   return data;
+}
+
+/** Register an account. Returns {user, token}. */
+export function registerRemote(name, password) {
+  return req('/api/auth/register', { method: 'POST', body: { name, password } });
+}
+
+/** Log in to an account. Returns {user, token}. */
+export function loginRemote(name, password) {
+  return req('/api/auth/login', { method: 'POST', body: { name, password } });
+}
+
+/** Log out the current token (best-effort, idempotent). */
+export function logoutRemote() {
+  return req('/api/auth/logout', { method: 'POST' });
+}
+
+/** Who the stored token belongs to. Throws ApiError(401) when logged out. */
+export function fetchMe() {
+  return req('/api/auth/me');
+}
+
+/** Persist an account avatar server-side. Returns {user}. */
+export function setRemoteAvatar(avatar) {
+  return req('/api/auth/avatar', { method: 'POST', body: { avatar: avatar || null } });
 }
 
 /** Create a group on the server. Returns {group}. */

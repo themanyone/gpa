@@ -1,10 +1,11 @@
 // GPA — Group Planning Assistant (GPL-2.0-only). See LICENSE.
 // app.js: entry point — wires dialogs, info bar, chat, and access control.
 
-import { isBackendAvailable, joinRemote } from './api.js';
+import { isBackendAvailable, joinRemote, setRemoteAvatar } from './api.js';
 import {
   canChangeAvatar, canCreateGroups, currentUser, identityFor,
-  login, logout, setGuestHandle, setUserAvatar,
+  login, loginAccount, logout, logoutAccount, refreshSessionUser,
+  registerAccount, setGuestHandle, setUserAvatar,
 } from './auth.js';
 import { avatarFor, genericAvatar } from './avatar.js';
 import { renderMessages, sendMessage, unwatchGroup, watchGroup } from './chat.js';
@@ -34,6 +35,11 @@ const els = {
   loginDialog: $('loginDialog'),
   loginForm: $('loginForm'),
   loginName: $('loginName'),
+  loginSub: $('loginSub'),
+  loginPasswordRow: $('loginPasswordRow'),
+  loginPassword: $('loginPassword'),
+  loginModeToggle: $('loginModeToggle'),
+  loginSubmit: $('loginSubmit'),
   handleDialog: $('handleDialog'),
   handleForm: $('handleForm'),
   handleName: $('handleName'),
@@ -51,12 +57,15 @@ const els = {
 let activeGroup = null;
 let pendingAvatar = null; // data URL staged in the avatar dialog
 let remoteMode = false;
+let loginMode = 'login'; // login dialog: 'login' | 'register' (remote only)
 
 init();
 
 async function init() {
   remoteMode = await isBackendAvailable();
-  if (!remoteMode) seedIfEmpty();
+  if (remoteMode) await refreshSessionUser();
+  else seedIfEmpty();
+  configureLoginDialog();
   activeGroup = await resolveActiveGroup();
   wireStatic();
   renderAll();
@@ -110,7 +119,7 @@ function wireStatic() {
   els.newGroupBtn.addEventListener('click', () => {
     if (!canCreateGroups()) {
       alert('Log in to create a group. Guests can join via an invite link.');
-      els.loginDialog.showModal();
+      openLoginDialog();
       return;
     }
     els.groupForm.reset();
@@ -150,10 +159,26 @@ function wireStatic() {
 
   els.loginForm.addEventListener('submit', async (e) => {
     e.preventDefault();
-    login(els.loginName.value);
+    try {
+      if (!remoteMode) {
+        login(els.loginName.value);
+      } else if (loginMode === 'register') {
+        await registerAccount(els.loginName.value, els.loginPassword.value);
+      } else {
+        await loginAccount(els.loginName.value, els.loginPassword.value);
+      }
+    } catch (err) {
+      alert(err.message || 'Could not log in.');
+      return;
+    }
+    els.loginPassword.value = '';
     els.loginDialog.close();
     await ensureRemoteMembership();
     renderAll();
+  });
+
+  els.loginModeToggle.addEventListener('click', () => {
+    setLoginMode(loginMode === 'register' ? 'login' : 'register');
   });
 
   els.handleForm.addEventListener('submit', async (e) => {
@@ -201,6 +226,13 @@ function wireStatic() {
       alert('Only logged-in users can change their profile picture.');
       return;
     }
+    if (remoteMode) {
+      try {
+        await setRemoteAvatar(pendingAvatar);
+      } catch {
+        // Server unreachable mid-session: local picture stands.
+      }
+    }
     els.avatarDialog.close();
     await ensureRemoteMembership();
     renderAll();
@@ -218,6 +250,33 @@ function wireStatic() {
   };
   scheme.addEventListener('change', paintScheme);
   paintScheme();
+}
+
+/** Password + register mode exist only with a backend; offline stays name-only. */
+function configureLoginDialog() {
+  els.loginPasswordRow.hidden = !remoteMode;
+  els.loginModeToggle.hidden = !remoteMode;
+  els.loginPassword.required = remoteMode;
+  setLoginMode('login');
+}
+
+function setLoginMode(mode) {
+  loginMode = mode;
+  const register = mode === 'register';
+  els.loginDialog.querySelector('h2').textContent = register ? 'Create account' : 'Log in';
+  els.loginSub.textContent = register
+    ? 'Pick a display name and password to create groups and set a profile picture.'
+    : 'Logged-in users can create groups and set a profile picture.';
+  els.loginPassword.autocomplete = register ? 'new-password' : 'current-password';
+  els.loginSubmit.textContent = register ? 'Create account' : 'Log in';
+  els.loginModeToggle.textContent = register ? 'Log in instead' : 'Create an account instead';
+}
+
+function openLoginDialog() {
+  setLoginMode('login');
+  els.loginName.value = '';
+  els.loginPassword.value = '';
+  els.loginDialog.showModal();
 }
 
 function renderAll() {
@@ -268,10 +327,7 @@ function renderAuthArea() {
     btn.type = 'button';
     btn.className = 'btn btn-primary';
     btn.textContent = 'Log in';
-    btn.addEventListener('click', () => {
-      els.loginName.value = '';
-      els.loginDialog.showModal();
-    });
+    btn.addEventListener('click', () => openLoginDialog());
     els.authArea.appendChild(btn);
     return;
   }
@@ -295,7 +351,11 @@ function renderAuthArea() {
   outBtn.type = 'button';
   outBtn.className = 'btn btn-ghost';
   outBtn.textContent = 'Log out';
-  outBtn.addEventListener('click', () => { logout(); renderAll(); });
+  outBtn.addEventListener('click', async () => {
+    if (remoteMode) await logoutAccount();
+    else logout();
+    renderAll();
+  });
   chip.append(img, label, picBtn, outBtn);
   els.authArea.appendChild(chip);
 }

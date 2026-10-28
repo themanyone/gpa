@@ -70,13 +70,18 @@
   <dialog id="loginDialog" aria-labelledby="loginTitle">
     <form id="loginForm">
       <h2 id="loginTitle">Log in</h2>
-      <p class="dialog-sub">Logged-in users can create groups and set a profile picture.</p>
+      <p class="dialog-sub" id="loginSub">Logged-in users can create groups and set a profile picture.</p>
       <label>Display name
         <input id="loginName" type="text" required maxlength="40" autocomplete="nickname">
       </label>
+      <label id="loginPasswordRow">Password
+        <input id="loginPassword" type="password" maxlength="128" autocomplete="current-password">
+      </label>
       <div class="dialog-actions">
+        <button type="button" class="btn btn-ghost" id="loginModeToggle">Create an account instead</button>
+        <span class="spacer"></span>
         <button type="button" class="btn btn-ghost" data-close>Cancel</button>
-        <button type="submit" class="btn btn-primary">Log in</button>
+        <button type="submit" class="btn btn-primary" id="loginSubmit">Log in</button>
       </div>
     </form>
   </dialog>

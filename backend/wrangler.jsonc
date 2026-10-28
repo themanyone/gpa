@@ -7,9 +7,15 @@
   // Static frontend (../public) is served directly; /api/* falls through to the Worker.
   "assets": { "directory": "../public" },
   "durable_objects": {
-    "bindings": [{ "name": "GROUP_ROOM", "class_name": "GroupRoom" }]
+    "bindings": [
+      { "name": "GROUP_ROOM", "class_name": "GroupRoom" },
+      { "name": "AUTH_STORE", "class_name": "AuthStore" }
+    ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["GroupRoom"] }],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["GroupRoom"] },
+    { "tag": "v2", "new_sqlite_classes": ["AuthStore"] }
+  ],
   "observability": {
     "enabled": true,
     "logs": { "enabled": true, "head_sampling_rate": 1 },

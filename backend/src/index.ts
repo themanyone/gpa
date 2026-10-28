@@ -1,10 +1,14 @@
 // GPA — Group Planning Assistant (GPL-2.0-only). See LICENSE.
-// index.ts: Worker entry — routes /api/* to GroupRoom Durable Objects.
+// index.ts: Worker entry — routes /api/* to Durable Objects.
 // Static files are served from ../public without invoking this Worker.
+// Identity: authenticated users act via Bearer session tokens (verified
+// against AuthStore); unauthenticated callers can only read or join/post
+// as guests, and never under a registered name.
 
+import { AuthStore } from "./auth-store";
 import { GroupRoom } from "./group-room";
 
-export { GroupRoom };
+export { AuthStore, GroupRoom };
 
 const ID_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
 
@@ -20,7 +24,7 @@ function json(data: unknown, status = 200): Response {
       "Content-Type": "application/json",
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization",
     },
   });
 }
@@ -41,8 +45,58 @@ function BadRequest(message: string): Error & { status?: number } {
   return Object.assign(new Error(message), { status: 400 });
 }
 
+function httpError(message: string, status: number): Error & { status?: number } {
+  return Object.assign(new Error(message), { status });
+}
+
+function errStatus(e: unknown): number | null {
+  const status = (e as { status?: unknown }).status;
+  return typeof status === "number" ? status : null;
+}
+
 function stubFor(env: Env, id: string): DurableObjectStub<GroupRoom> {
   return env.GROUP_ROOM.getByName(id);
+}
+
+function authStub(env: Env): DurableObjectStub<AuthStore> {
+  return env.AUTH_STORE.getByName("global");
+}
+
+function bearerToken(request: Request): string | null {
+  const header = request.headers.get("Authorization");
+  if (!header) return null;
+  const match = /^Bearer (.+)$/.exec(header.trim());
+  const token = match ? match[1].trim() : "";
+  return token.length > 0 ? token : null;
+}
+
+/**
+ * Resolve who the caller acts as. Authenticated users always act as
+ * themselves (client name/kind/avatar claims are ignored). Everyone else
+ * acts as a guest with a generic avatar — or posts an AI reply when the
+ * route allows it (the browser demo stub; the model slice moves this
+ * server-side). `nameKey` is the body's identity field ("name" or "author").
+ */
+async function resolveIdentity(
+  env: Env,
+  request: Request,
+  body: Record<string, unknown>,
+  nameKey: string,
+  allowAi: boolean,
+): Promise<{ name: string; kind: string; avatar: string | null }> {
+  const claimedKind = String(body["kind"] ?? "guest");
+  if (claimedKind === "ai" && allowAi) {
+    return { name: String(body[nameKey] ?? ""), kind: "ai", avatar: null };
+  }
+  const token = bearerToken(request);
+  const me = token ? await authStub(env).verify(token) : null;
+  if (me) return { name: me.name, kind: "user", avatar: me.avatar };
+  if (claimedKind === "user") throw httpError("Log in to act as a user.", 401);
+  const name = String(body[nameKey] ?? "");
+  if (await authStub(env).isRegistered(name)) {
+    throw httpError("That name belongs to a registered account. Log in to use it.", 403);
+  }
+  return { name, kind: "guest", avatar: null };
 }
 
 export default {
@@ -55,7 +109,7 @@ export default {
         headers: {
           "Access-Control-Allow-Origin": "*",
           "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type",
+          "Access-Control-Allow-Headers": "Content-Type, Authorization",
         },
       });
     }
@@ -63,7 +117,62 @@ export default {
       if (url.pathname === "/api/health" && request.method === "GET") {
         return json({ ok: true, time: Date.now() });
       }
+      if (url.pathname === "/api/auth/register" && request.method === "POST") {
+        const body = await readBody(request);
+        try {
+          const result = await authStub(env).register(
+            String(body["name"] ?? ""),
+            String(body["password"] ?? ""),
+          );
+          return json(result, 201);
+        } catch (e) {
+          const msg = messageOf(e);
+          return json({ error: msg }, msg === "Name is already taken." ? 409 : 400);
+        }
+      }
+      if (url.pathname === "/api/auth/login" && request.method === "POST") {
+        const body = await readBody(request);
+        try {
+          const result = await authStub(env).login(
+            String(body["name"] ?? ""),
+            String(body["password"] ?? ""),
+          );
+          return json(result);
+        } catch (e) {
+          const msg = messageOf(e);
+          return json({ error: msg }, msg === "Invalid name or password." ? 401 : 400);
+        }
+      }
+      if (url.pathname === "/api/auth/logout" && request.method === "POST") {
+        const token = bearerToken(request);
+        if (token) await authStub(env).logout(token);
+        return json({ ok: true });
+      }
+      if (url.pathname === "/api/auth/me" && request.method === "GET") {
+        const token = bearerToken(request);
+        const user = token ? await authStub(env).verify(token) : null;
+        if (!user) return json({ error: "Not logged in." }, 401);
+        return json({ user });
+      }
+      if (url.pathname === "/api/auth/avatar" && request.method === "POST") {
+        const token = bearerToken(request);
+        const user = token ? await authStub(env).verify(token) : null;
+        if (!user) return json({ error: "Log in to change your profile picture." }, 401);
+        const body = await readBody(request);
+        try {
+          const updated = await authStub(env).setAvatar(
+            user.name,
+            typeof body["avatar"] === "string" ? body["avatar"] : null,
+          );
+          return json({ user: updated });
+        } catch (e) {
+          return json({ error: messageOf(e) }, 400);
+        }
+      }
       if (url.pathname === "/api/groups" && request.method === "POST") {
+        const token = bearerToken(request);
+        const me = token ? await authStub(env).verify(token) : null;
+        if (!me) return json({ error: "Log in to create groups." }, 401);
         const body = await readBody(request);
         const id = makeGroupId();
         try {
@@ -71,7 +180,7 @@ export default {
             id,
             title: String(body["title"] ?? ""),
             topic: String(body["topic"] ?? ""),
-            creator: String(body["creator"] ?? ""),
+            creator: me.name,
           });
           return json({ group }, 201);
         } catch (e) {
@@ -90,14 +199,16 @@ export default {
         if (rest === "/join" && request.method === "POST") {
           const body = await readBody(request);
           try {
+            const identity = await resolveIdentity(env, request, body, "name", false);
             const members = await stub.join({
-              name: String(body["name"] ?? ""),
-              kind: String(body["kind"] ?? "guest"),
-              avatar: typeof body["avatar"] === "string" ? body["avatar"] : null,
+              name: identity.name,
+              kind: identity.kind,
+              avatar: identity.avatar,
             });
             return json({ members });
           } catch (e) {
-            return json({ error: messageOf(e) }, 404);
+            const msg = messageOf(e);
+            return json({ error: msg }, errStatus(e) ?? (msg === "Group not found." ? 404 : 400));
           }
         }
         if (rest === "/messages" && request.method === "GET") {
@@ -112,16 +223,17 @@ export default {
         if (rest === "/messages" && request.method === "POST") {
           const body = await readBody(request);
           try {
+            const identity = await resolveIdentity(env, request, body, "author", true);
             const message = await stub.post({
-              author: String(body["author"] ?? ""),
-              kind: String(body["kind"] ?? ""),
-              avatar: typeof body["avatar"] === "string" ? body["avatar"] : null,
+              author: identity.name,
+              kind: identity.kind,
+              avatar: identity.avatar,
               text: String(body["text"] ?? ""),
             });
             return json({ message }, 201);
           } catch (e) {
             const msg = messageOf(e);
-            return json({ error: msg }, msg === "Group not found." ? 404 : 400);
+            return json({ error: msg }, errStatus(e) ?? (msg === "Group not found." ? 404 : 400));
           }
         }
         if (rest === "/ws" && request.headers.get("Upgrade") === "websocket") {

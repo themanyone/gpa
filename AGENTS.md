@@ -12,15 +12,15 @@ GPA is a group-planning assistant with a group chat interface, participant lists
 ## Architecture & Data Flow
 
 ### Backend (`backend/`, TypeScript, `wrangler.jsonc`)
-- `src/index.ts`: Worker entry. Routes `/api/*` to `GroupRoom` stubs (`getByName`), handles CORS/OPTIONS, validates input, returns JSON errors. Static files never reach it (assets are served first).
+- `src/index.ts`: Worker entry. Routes `/api/*` to Durable Object stubs (`getByName`), handles CORS/OPTIONS, validates input, returns JSON errors. Static files never reach it (assets are served first). Resolves caller identity via `AuthStore` before group writes.
 - `src/group-room.ts`: `GroupRoom` Durable Object — one instance per group. SQLite tables for meta/members/messages; RPC methods `ensureGroup`, `join`, `post`, `listMessages`, `getState`; `fetch` only upgrades WebSockets; `broadcast` fans new messages out to hibernated sockets.
-- Non-goal (current slice): authentication. The server accepts the client-claimed author name; `kind` is validated to `user`/`guest`/`ai`.
+- `src/auth-store.ts`: `AuthStore` Durable Object — one global instance (`getByName("global")`). PBKDF2 password hashes, opaque 30-day session tokens; RPC methods `register`, `login`, `verify`, `logout`, `isRegistered`, `setAvatar`.
 
 ### Core Modules (`public/js/`)
 - `app.js`: The application entry point. Async boot (backend probe → resolve group → render), wires up DOM elements, dialogs, and the main lifecycle.
-- `api.js`: The backend client. Same-origin `/api` base (override via `?api=` or `gpa.apiBase`), cached `isBackendAvailable()` probe, REST helpers, `connectGroupSocket` with backoff reconnect.
+- `api.js`: The backend client. Same-origin `/api` base (override via `?api=` or `gpa.apiBase`), cached `isBackendAvailable()` probe, session-token storage (`gpa.authToken`, sent as `Authorization: Bearer`), REST + auth helpers, `connectGroupSocket` with backoff reconnect.
 - `store.js`: The local cache layer. `localStorage` read/write for groups, messages, and sessions; `addMessage` upserts by id so server echoes don't duplicate; `saveMessages` replaces after sync.
-- `auth.js`: Manages user identity (logged-in vs. guest) and provides capability gates (e.g., `canCreateGroups()`).
+- `auth.js`: Manages user identity (remote password accounts via `*Account()` fns, name-only login offline, per-group guest handles) and provides capability gates (e.g., `canCreateGroups()`).
 - `chat.js`: Handles the chat UI, message rendering, and the message sending flow. Remote mode posts through the server (server assigns ids); `watchGroup`/`unwatchGroup` manage the live subscription.
 - `models.js`: Defines available AI models and handles `@mention` parsing for AI triggers. Currently contains demo stubs for AI replies, posted through the same channel so all clients see them.
 - `groups.js`: Manages group creation (async; remote-first), invite links, `syncGroupFromServer`, and group resolution from URLs.
@@ -30,8 +30,8 @@ GPA is a group-planning assistant with a group chat interface, participant lists
 ### Data Models
 - **Group**: `{id, title, topic, members:[{name, kind, avatar}], createdBy, createdAt}`
 - **Message**: `{id, author, kind:'user'|'guest'|'ai', avatar, text, ts}`
-- **Session**: `{user: {name, avatar} | null, guests: {groupId: handle}}`
-- Server mirrors these as `GroupInfo` / `ChatMessage` / `Member` in `backend/src/group-room.ts`.
+- **Session**: `{user: {name, avatar} | null, guests: {groupId: handle}}`, plus the opaque session token in `localStorage` (`gpa.authToken`)
+- Server mirrors these as `GroupInfo` / `ChatMessage` / `Member` in `backend/src/group-room.ts`, plus `AccountUser` in `backend/src/auth-store.ts`.
 
 ## Development Workflow
 
@@ -78,6 +78,6 @@ Then navigate to the printed URL in a browser.
 - **CORS/ES Modules**: Attempting to run the app by double-clicking `index.html` will result in CORS errors. Always use an HTTP server.
 - **Demo Stubs**: AI functionality is currently simulated in `public/js/models.js`.
 - **Demo Seed**: The "Weekend Trip" seed group is only created in local demo mode; with a backend, groups come from the server.
-- **Guest Identity**: Guests are assigned a handle when they join a group via an invite link; membership is registered on the server via `join` (idempotent upsert).
+- **Guest Identity**: Guests are assigned a handle when they join a group via an invite link; membership is registered on the server via `join` (idempotent upsert). Guest handles can't match a registered account name (case-insensitive); guests always get `avatar: null`.
 - **Message Ids**: In remote mode the server assigns message ids; clients must render the POST response, not a locally-built message, or echoes will duplicate.
-- **No Auth Yet**: The server trusts the client-claimed author name. Don't build anything that assumes verified identity until the auth slice lands.
+- **Server Identity**: Authenticated requests derive `{name, kind: 'user', avatar}` from the Bearer token — client claims are ignored. Group creation requires a token; `kind: 'user'` without one is 401. Account names are unique case-insensitively. `kind: 'ai'` posts stay open (browser demo stub) until the model slice moves them server-side.

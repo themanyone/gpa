@@ -1,8 +1,8 @@
 // GPA — Group Planning Assistant (GPL-2.0-only). See LICENSE.
 // group-room.ts: one Durable Object per group chat — members, messages,
 // and live fan-out over hibernatable WebSockets.
-// Non-goal for this slice: authentication. The server accepts the
-// client-claimed author name; real accounts come in a later slice.
+// Identity is enforced by the Worker entry (index.ts), which resolves the
+// caller against AuthStore before invoking these methods.
 
 import { DurableObject } from "cloudflare:workers";
 
